@@ -1,3 +1,5 @@
+## data intergation
+
 library(lme4)
 library(tidyverse)
 library(gridExtra)
@@ -6,23 +8,6 @@ library(lubridate)
 library(ggplot2)
 covid1=read_csv("C:/Users/syk/Desktop/WHO-COVID-19-global-data.csv")
 library(plotly)
-covid1 %>% 
-  filter(Date_reported>= "2020-01-03", Date_reported<= "2022-02-10") %>%  
-  group_by(Date_reported,WHO_region) %>%   summarize(deaths = sum(New_deaths),
-                                                     cases = sum(New_cases)) %>% 
-  mutate(Days_2021 = Date_reported- as.Date("2021-01-01")) %>%
-  plot_ly(
-    x= ~cases,
-    y= ~deaths,
-    frame = ~Days_2021,
-    text=~WHO_region,
-    hoverinfo="WHO_region",
-    color=~WHO_region,
-    type = 'scatter',
-    mode = 'markers',
-    showlegend = T
-  )
-# Main data
 covid <- read_csv("C:/Users/syk/Desktop/vaccination-data.csv")
 case <- read_csv("C:/Users/syk/Desktop/WHO-COVID-19-global-table-data.csv")
 owid <- read_csv("C:/Users/syk/Desktop/owid.csv")
@@ -42,11 +27,28 @@ raw1 = owid1 %>%
 raw1 = na.omit(raw1)
 names(raw1)[1] = "COUNTRY"
 names(raw1)
-
 datas = merge(raw1, covid, by="COUNTRY")
-
 datas$handwash = cut(datas$handwash, c(0,20,40,60,80,100))
 
+## data visualization
+
+library(plotly)
+covid1 %>% 
+  filter(Date_reported>= "2020-01-03", Date_reported<= "2022-02-10") %>%  
+  group_by(Date_reported,WHO_region) %>%   summarize(deaths = sum(New_deaths),
+                                                     cases = sum(New_cases)) %>% 
+  mutate(Days_2021 = Date_reported- as.Date("2021-01-01")) %>%
+  plot_ly(
+    x= ~cases,
+    y= ~deaths,
+    frame = ~Days_2021,
+    text=~WHO_region,
+    hoverinfo="WHO_region",
+    color=~WHO_region,
+    type = 'scatter',
+    mode = 'markers',
+    showlegend = T
+  )
 a = datas %>%
   group_by(handwash, month) %>%
   summarise(number = n()) %>%
@@ -86,14 +88,14 @@ plotmeans(month_cases_perm~NUMBER_VACCINES_TYPES_USED,data=datas,xlab="type",yla
 interaction.plot(datas$handwash, datas$NUMBER_VACCINES_TYPES_USED, datas$month_cases_perm
                  ,ylab="cases",xlab="handwash",cex.lab=1.5)
 par(mfrow=c(1,1))
-
+## Two-way ANOVA model
 library(car)
 #Type I model
 anova.fit1=aov(month_cases_perm~NUMBER_VACCINES_TYPES_USED+handwash+NUMBER_VACCINES_TYPES_USED*handwash,data=datas)
 summary(anova.fit1)
-
+## Multiple comparison
 TukeyHSD(anova.fit1, which = "NUMBER_VACCINES_TYPES_USED")
-
+## Sensitivity analysis
 library(ggpubr)
 # Build the linear model
 model  <- lm(month_cases_perm ~ handwash*NUMBER_VACCINES_TYPES_USED,
