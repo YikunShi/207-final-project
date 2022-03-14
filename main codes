@@ -1,0 +1,132 @@
+library(lme4)
+library(tidyverse)
+library(gridExtra)
+library(scales)
+library(lubridate)
+library(ggplot2)
+covid1=read_csv("C:/Users/syk/Desktop/WHO-COVID-19-global-data.csv")
+library(plotly)
+covid1 %>% 
+  filter(Date_reported>= "2020-01-03", Date_reported<= "2022-02-10") %>%  
+  group_by(Date_reported,WHO_region) %>%   summarize(deaths = sum(New_deaths),
+                                                     cases = sum(New_cases)) %>% 
+  mutate(Days_2021 = Date_reported- as.Date("2021-01-01")) %>%
+  plot_ly(
+    x= ~cases,
+    y= ~deaths,
+    frame = ~Days_2021,
+    text=~WHO_region,
+    hoverinfo="WHO_region",
+    color=~WHO_region,
+    type = 'scatter',
+    mode = 'markers',
+    showlegend = T
+  )
+# Main data
+covid <- read_csv("C:/Users/syk/Desktop/vaccination-data.csv")
+case <- read_csv("C:/Users/syk/Desktop/WHO-COVID-19-global-table-data.csv")
+owid <- read_csv("C:/Users/syk/Desktop/owid.csv")
+covid$NUMBER_VACCINES_TYPES_USED=as.factor(covid$NUMBER_VACCINES_TYPES_USED)
+library(ggpubr)
+
+covid = covid[, c("COUNTRY", "NUMBER_VACCINES_TYPES_USED")]
+owid1 = owid[,c("location", "date","total_cases_per_million", "new_cases_per_million", "handwashing_facilities", "population")]
+owid1 = na.omit(owid1)
+raw1 = owid1 %>%
+  mutate(month = format(as.Date(date), "%Y-%m")) %>%
+  group_by(location, month) %>%
+  summarise(
+    month_cases_perm  = sum(new_cases_per_million),
+    handwash = mean(handwashing_facilities)
+  )
+raw1 = na.omit(raw1)
+names(raw1)[1] = "COUNTRY"
+names(raw1)
+
+datas = merge(raw1, covid, by="COUNTRY")
+
+datas$handwash = cut(datas$handwash, c(0,20,40,60,80,100))
+
+a = datas %>%
+  group_by(handwash, month) %>%
+  summarise(number = n()) %>%
+  ggplot(aes(fill = handwash, y = number, x = month)) + 
+  geom_bar(position="fill", stat="identity", width = 0.8) + 
+  scale_fill_manual(values = c("#61799b","#ab594b","#9daccb","#ffdba7","#e5a8b8","#d1a5be")) +
+  labs(title = "Barplot of Monthly Vaccinations Per 100", y = "Monthly Vaccinations Per 100", x = "Month")+
+  theme(axis.text.x = element_text(angle=90),text = element_text(size=10))
+names(datas)[5] = "vacctype"
+b = datas %>%
+  group_by(vacctype, month) %>%
+  summarise(number = n()) %>%
+  ggplot(aes(fill = vacctype, y = number, x = month)) + 
+  geom_bar(position="fill", stat="identity", width = 0.8) + 
+  scale_fill_manual(values = c("#61799b","#ab594b","#9daccb","#ffdba7","#e5a8b8","#d1a5be","#c8ece0","#a7c9b9","#5f8e7a","#d8e2d2")) +
+  labs(title = "Barplot of different type vaccine number", y = "different type vaccine number", x = "Month")+
+  theme(axis.text.x = element_text(angle=90),text = element_text(size=10))
+names(datas)[5] = "NUMBER_VACCINES_TYPES_USED"
+ggarrange(a, b, 2,1)
+
+par(mfrow = c(1,2))
+hist(datas$month_cases_perm)
+hist(log(datas$month_cases_perm))
+datas$month_cases_perm = log(datas$month_cases_perm)
+aa = which(datas$month_cases_perm == -Inf)
+datas = datas[-c(aa),]
+
+library(gplots)
+par(mfrow=c(2,2))
+
+plotmeans(month_cases_perm~handwash,data=datas,xlab="handwash",ylab="cases",
+          main="Main  effect: handwash",cex.lab=1.5) 
+
+plotmeans(month_cases_perm~NUMBER_VACCINES_TYPES_USED,data=datas,xlab="type",ylab="cases", 
+          main="Main  effect: type",cex.lab=1.5)
+#Interaction plot
+interaction.plot(datas$handwash, datas$NUMBER_VACCINES_TYPES_USED, datas$month_cases_perm
+                 ,ylab="cases",xlab="handwash",cex.lab=1.5)
+par(mfrow=c(1,1))
+
+library(car)
+#Type I model
+anova.fit1=aov(month_cases_perm~NUMBER_VACCINES_TYPES_USED+handwash+NUMBER_VACCINES_TYPES_USED*handwash,data=datas)
+summary(anova.fit1)
+
+TukeyHSD(anova.fit1, which = "NUMBER_VACCINES_TYPES_USED")
+
+library(ggpubr)
+# Build the linear model
+model  <- lm(month_cases_perm ~ handwash*NUMBER_VACCINES_TYPES_USED,
+             data = datas)
+# Create a QQ plot of residuals
+ggqqplot(residuals(model))
+
+# Compute Shapiro-Wilk test of normality
+library(rstatix)
+shapiro_test(residuals(model))
+
+data7 = raw1 %>%
+  group_by(COUNTRY) %>%
+  summarise(
+    all_cases_perm  = sum(month_cases_perm),
+    handwash = mean(handwash),
+  )
+data7 = na.omit(data7)
+data7 = merge(data7, covid, by="COUNTRY")
+data7$handwash = cut(data7$handwash, c(0,20,40,60,80,100))
+model1  <- lm(log(all_cases_perm) ~ handwash*NUMBER_VACCINES_TYPES_USED,
+              data = data7)
+shapiro_test(residuals(model1))
+
+plot(model$residuals)
+delete1 = which(datas$month >= '2020-02' & datas$month <= '2020-04',)
+datas = datas[-c(delete1), ]
+model  <- lm(month_cases_perm ~ handwash*NUMBER_VACCINES_TYPES_USED,
+             data = datas)
+ggqqplot(residuals(model))
+
+library(car)
+#Type I model
+anova.fit2=aov(month_cases_perm~NUMBER_VACCINES_TYPES_USED+handwash+NUMBER_VACCINES_TYPES_USED*handwash,data=datas)
+summary(anova.fit2)
+TukeyHSD(anova.fit2, which = "NUMBER_VACCINES_TYPES_USED")
