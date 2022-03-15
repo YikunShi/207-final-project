@@ -1,0 +1,291 @@
+---
+title: "Final project report - Effects of handwash facilities and vaccine type of COVID-19 - based on WHO and OWID data"
+date: ' 2022/3/13 '
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## 1. Introduction
+
+The WHO coronavirus (COVID-19) dashboard presents official daily counts of COVID-19 cases, deaths and vaccine utilisation reported by countries, territories and areas. The reported data started from 19 June 2021, and the data will be updated every weekend. As a result, to consider a weekly count or long-term count is more meaningful. To make completement of this data, we also download OWID data set from Our world in data website, which contains hand wash facilities and other variables.
+
+And as the number of new cases of infected people risen rapidly, the medical services is facing a big pressure of providing test or cure the infected individuals. COVID-19 vaccines is of vital importance in this situation: It's the most effective way to control the pandemic. In this report, we want to discuss the efficiency of different types of vaccines.
+
+There are two data set we will use during this report. 
+
+The first one is vaccination-data data set which has 14 variables and 229 variables, we will use question related variables.
+
+| Variable name        | Type          | Description      |
+| ----------------- |:-------------:| ---------------: |
+| Country           | String        | Country, territory, area |
+| Country_code      | String        | ISO Alpha-2 country code |
+| DATE_UPDATED	    | Date	        |Date of last update       |
+|NUMBER_VACCINES_TYPES_USED	| Integer	|Number of vaccine types used per country, territory, area|
+|PERSONS_FULLY_VACCINATED	|Integer|	Cumulative number of persons fully vaccinated|
+|PERSONS_FULLY_VACCINATED_PER100	| Decimal	|Cumulative number of persons fully vaccinated per 100 population|
+| TOTAL_VACCINATIONS_PER100 |	Integer	| Cumulative total vaccine doses administered per 100 population|
+
+The second one is owid data set from Our World in Data. We will use 4 variables from this data set.
+
+| Variable name        | Type          | Description      |
+| ----------------- |:-------------:| ---------------: |
+| location           | String        | Country, territory, area |
+| new_cases_per_million | Float      | Daily new cases per million population |
+| handwashing_facilities	    | Float    | Share of the population with basic handwashing facilities on premises   |
+| population	| Integer	| Population statistic of location |
+
+## 2. Background
+
+COVID-19 is a novel coronavirus identified as the cause of a cluster of pneumonia cases in Wuhan. It rapidly spread, resulting in an global epidemic throughout the world. We will use the data download from WHO coronavirus (COVID-19) dashboard website. The WHO coronavirus (COVID-19) dashboard presents official daily counts of COVID-19 cases, deaths and vaccine utilization reported by countries, and areas. Also, it collects vaccines related data, including vaccined people in each country and vaccine types.
+
+The health of the global population is the most important factor as research is directed towards vaccines and governments scramble to implement public health measures to reduce the spread of the disease. In most countries, these measures have come in the form of local or national lockdown where individuals are advised or required to remain at home unless they have good reason not to—e.g. Most of schools chose to use remote study during a comparatively serious period. However, the implications of trying to control COVID-19 are being felt not only by the health sector, but also in areas such as the economy, environment, and society. Here is an interactive plot shows rapidly increase of COVID-19 cases from 2021-01-03 to 2022-02-10 in different WHO areas:
+
+```{r, echo=F, message=FALSE}
+library(lme4)
+library(tidyverse)
+library(gridExtra)
+library(scales)
+library(lubridate)
+library(ggplot2)
+covid1=read_csv("C:/Users/syk/Desktop/WHO-COVID-19-global-data.csv")
+library(plotly)
+covid1 %>% 
+  filter(Date_reported>= "2020-01-03", Date_reported<= "2022-02-10") %>%  
+  group_by(Date_reported,WHO_region) %>%   summarize(deaths = sum(New_deaths),
+                                                     cases = sum(New_cases)) %>% 
+  mutate(Days_2021 = Date_reported- as.Date("2021-01-01")) %>%
+  plot_ly(
+    x= ~cases,
+    y= ~deaths,
+    frame = ~Days_2021,
+    text=~WHO_region,
+    hoverinfo="WHO_region",
+    color=~WHO_region,
+    type = 'scatter',
+    mode = 'markers',
+    showlegend = T
+  )
+```
+
+
+
+
+## 3. Exploratory data analysis
+
+```{r, echo=F, warning=FALSE, message=F}
+# Main data
+covid <- read_csv("C:/Users/syk/Desktop/vaccination-data.csv")
+case <- read_csv("C:/Users/syk/Desktop/WHO-COVID-19-global-table-data.csv")
+owid <- read_csv("C:/Users/syk/Desktop/owid.csv")
+covid$NUMBER_VACCINES_TYPES_USED=as.factor(covid$NUMBER_VACCINES_TYPES_USED)
+library(lme4)
+library(tidyverse)
+library(gridExtra)
+library(scales)
+library(lubridate)
+library(ggplot2)
+library(ggpubr)
+```
+
+```{r, echo=F, warning=FALSE, message=F, include=F}
+covid = covid[, c("COUNTRY", "NUMBER_VACCINES_TYPES_USED")]
+owid1 = owid[,c("location", "date","total_cases_per_million", "new_cases_per_million", "handwashing_facilities", "population")]
+owid1 = na.omit(owid1)
+raw1 = owid1 %>%
+  mutate(month = format(as.Date(date), "%Y-%m")) %>%
+  group_by(location, month) %>%
+  summarise(
+    month_cases_perm  = sum(new_cases_per_million),
+    handwash = mean(handwashing_facilities)
+  )
+raw1 = na.omit(raw1)
+names(raw1)[1] = "COUNTRY"
+names(raw1)
+
+datas = merge(raw1, covid, by="COUNTRY")
+
+datas$handwash = cut(datas$handwash, c(0,20,40,60,80,100))
+```
+Let's focus on the question, how do we evaluate different types of vaccines' efficiency? Here we will use monthly cumulative new cases per million since 2021-01 to 2022-03, from different countries. As different countries' population differs, we use per 1,000,000 population's average cases to eliminate the population's effect. One of our explanatory variable is vaccine type , another one here is different levels of hand wash facilities. According to wash facilities available number, we roughly divide it into 5 intervals: 0-20, 21-40, 41-60, 60-80, 81-100. Here are some plots for the explanatory variables:
+
+```{r, echo=F, message = F, warning=F}
+a = datas %>%
+  group_by(handwash, month) %>%
+  summarise(number = n()) %>%
+  ggplot(aes(fill = handwash, y = number, x = month)) + 
+  geom_bar(position="fill", stat="identity", width = 0.8) + 
+  scale_fill_manual(values = c("#61799b","#ab594b","#9daccb","#ffdba7","#e5a8b8","#d1a5be")) +
+  labs(title = "Barplot of Monthly Vaccinations Per 100", y = "Monthly Vaccinations Per 100", x = "Month")+
+  theme(axis.text.x = element_text(angle=90),text = element_text(size=10))
+names(datas)[5] = "vacctype"
+b = datas %>%
+  group_by(vacctype, month) %>%
+  summarise(number = n()) %>%
+  ggplot(aes(fill = vacctype, y = number, x = month)) + 
+  geom_bar(position="fill", stat="identity", width = 0.8) + 
+  scale_fill_manual(values = c("#61799b","#ab594b","#9daccb","#ffdba7","#e5a8b8","#d1a5be","#c8ece0","#a7c9b9","#5f8e7a","#d8e2d2")) +
+  labs(title = "Barplot of different type vaccine number", y = "different type vaccine number", x = "Month")+
+  theme(axis.text.x = element_text(angle=90),text = element_text(size=10))
+names(datas)[5] = "NUMBER_VACCINES_TYPES_USED"
+ggarrange(a, b, 2,1)
+```
+
+For the response variable, we made hist plot of it. However, we find that the distribution of this variable does't meet the normal assumption. After applying log transformation, it will be better. So we will use log(month_cases_perm) to replace month_cases_perm after that.
+```{r, echo=F}
+par(mfrow = c(1,2))
+hist(datas$month_cases_perm)
+hist(log(datas$month_cases_perm))
+datas$month_cases_perm = log(datas$month_cases_perm)
+aa = which(datas$month_cases_perm == -Inf)
+datas = datas[-c(aa),]
+```
+
+Here are plots for main effects and interactions:
+
+```{r,warning=FALSE, echo=F, message=F}
+library(gplots)
+par(mfrow=c(2,2))
+
+plotmeans(month_cases_perm~handwash,data=datas,xlab="handwash",ylab="cases",
+          main="Main  effect: handwash",cex.lab=1.5) 
+
+plotmeans(month_cases_perm~NUMBER_VACCINES_TYPES_USED,data=datas,xlab="type",ylab="cases", 
+          main="Main  effect: type",cex.lab=1.5)
+#Interaction plot
+interaction.plot(datas$handwash, datas$NUMBER_VACCINES_TYPES_USED, datas$month_cases_perm
+                ,ylab="cases",xlab="handwash",cex.lab=1.5)
+par(mfrow=c(1,1))
+```
+
+From the plot, we can find that (80, 100] handwash level has the most cases. Type 8 vaccine has the least cases. In the interactive plot, we can find that with the increase of vaccinations, the cases of type 1 vaccine get a vary low number at (40, 60] hand wash level. We will use two-way ANOVA model to verify it.
+
+## 4. Inference analysis
+ 
+We will use two-way fixed effect model in this report:     
+$$
+Y_{ijk} = \mu_{\cdot\cdot} + \alpha_i+\beta_j + (\alpha\beta)_{ij}+\epsilon_{ijk}, \ k=1,\ldots, n, j=1,\ldots, b, i=1,\ldots, a,
+$$
+
+where $\{\epsilon_{ijk}\}$ are i.i.d. $N(0,\sigma^2)$. Here $n=528, a=7, b=9$.
+
+In this model, $Y_{ijk}$ is the kth country's and month's new cases per million population of ith handwash level and jth vaccine type. $\mu_{\cdot\cdot}$ is the mean of cases. $\alpha_{i}$ represents the mean of hand wash facilities, $\beta_j$ represent the mean of different of different vaccine type. The interaction term represents the mean of ith vaccination level and jth vaccine type. 
+
+model assumption:
+1.Our response variable $Y_{ijk}$is normally distributed. 
+2. The variance among the groups(same vaccination level or same type or both) should be approximately equal. 
+3. The observations $Y_{ijk}$ are independent of each other.
+
+Also, there are constrains for the model:
+\begin{align}
+\sum \alpha_i & = \sum \beta_j=0\\
+\sum_{i=1}^a (\alpha\beta)_{ij} & =\sum_{j=1}^b (\alpha\beta)_{ij} =0
+\end{align}
+
+The type variable is a categorical variable with 9 levels, and handwash variable has 5 levels, if we use linear model, there will be too many dummy variables(44 variables) for linear regression model. Our aim is to compare these vaccines, not to make prediction. So a two-way ANOVA model is suitable.
+
+```{r, echo=F, include=F}
+library(car)
+#Type I model
+anova.fit1=aov(month_cases_perm~NUMBER_VACCINES_TYPES_USED+handwash+NUMBER_VACCINES_TYPES_USED*handwash,data=datas)
+summary(anova.fit1)
+```
+
+|                   | Degrees of freedom  | Sum of square  |  Mean Square | F-value  |  P-value |
+| ----------------- |:-------------------:| -------------: |------------: |--------: |--------: |
+| NUMBER_VACCINES_TYPES_USED | 8          | 1436          | 179.5        | 37.69    | *** |
+| handwash                  |  4          | 1759           | 439.7         | 92.35    | *** |
+| interaction	      |          19         | 636           | 33.5         | 7.03    | *** |
+| Residuals 	      |          2035	      | 9689         | 4.8         |          |          |   
+
+In this model, under the significance of 0.05, handwash and vaccine type have significant effect on cases. The interaction term is also significant. The conclusion is same with what we get in part 2: Vaccine type and handwash both have significant impact on cases.
+To make comparison, we need to use multiple comparison method(TukeyHSD method):
+```{r, echo = F, include=F}
+TukeyHSD(anova.fit1, which = "NUMBER_VACCINES_TYPES_USED")
+```
+According to the result of TukeyHSD test, we can divide the 9 vaccine type into 4 groups with monthly new cases increase: a. type1. b. type2, type3, type11. c. type4, type6, type7. d. type5, type8. As a result, we can make a inference that type 1 vaccine which contains Beijing CNBG - BBIBP-CorV, Pfizer BioNTech(Comirnaty), Moderna - Spikevax, Moderna - mRNA-1273, AstraZeneca - Vaxzevria, AstraZeneca - AZD1222, SII - Covishield.
+
+## 5. Model diagnostics 
+Normality assumption test:
+
+```{r, echo=F}
+library(ggpubr)
+# Build the linear model
+model  <- lm(month_cases_perm ~ handwash*NUMBER_VACCINES_TYPES_USED,
+             data = datas)
+# Create a QQ plot of residuals
+ggqqplot(residuals(model))
+```
+
+In the QQ plot, some points don't fall along the reference line, we can not assume normality. This conclusion is supported by the Shapiro-Wilk test. The p-value is significant (p = 1.101634e-24	), so we can not assume normality. In sensitivity test, we will try to use another time interval to conduct our conclusion.
+```{r, include=F}
+# Compute Shapiro-Wilk test of normality
+library(rstatix)
+shapiro_test(residuals(model))
+```
+
+
+Result of Shapiro-Wilk test:
+
+|     variable      | statistic           | p-value        |
+| ----------------- |:-------------------:| -------------: |
+|   residuals       |   0.9532623	         | 3.444505e-25	   |
+
+## 6. Sensitivity analysis
+
+Considering the monthly data didn't meet normal assumption, we will calculate the cumulative numbers of our response variable and explanatory variables for each country from 2020-02 to 2022-03. After deleting the NA value, we get 95 countries' total data. Using these data conducting normal test, the result is as follows:
+```{r, include=F}
+data7 = raw1 %>%
+  group_by(COUNTRY) %>%
+  summarise(
+    all_cases_perm  = sum(month_cases_perm),
+    handwash = mean(handwash),
+  )
+data7 = na.omit(data7)
+data7 = merge(data7, covid, by="COUNTRY")
+data7$handwash = cut(data7$handwash, c(0,20,40,60,80,100))
+model1  <- lm(log(all_cases_perm) ~ handwash*NUMBER_VACCINES_TYPES_USED,
+             data = data7)
+shapiro_test(residuals(model1))
+```
+The result of shapiro test is as follows:
+
+|     variable      | statistic           | p-value        |
+| ----------------- |:-------------------:| -------------: |
+|   residuals       |   0.9383759	         | 0.0005184615   |
+
+The normal distribution is still not fulfilled, we need to consider delete 45 lines of data with too large model residual from our data. And after checking, we find the deleted data are from *small country*(except India) and *early stage* or *the end of stage* of the COVID-19 pandemic. These countries' situation is easily affected by other infactors such as war, extreme bad medical environment, incorrect statistical data. Here we don't discuss more about these. But there is another important part is that at the early stage of pandemic, the vaccination may not work very well to build a immunological barrier, so it's reasonable to delete some early stage data. Here we tried to delete data from 2020-02 to 2020-04. In most country it's a early stage of pandemic.
+
+```{r, echo=F}
+delete1 = which(datas$month >= '2020-02' & datas$month <= '2020-04',)
+datas = datas[-c(delete1), ]
+model  <- lm(month_cases_perm ~ handwash*NUMBER_VACCINES_TYPES_USED,
+             data = datas)
+ggqqplot(residuals(model))
+```
+
+The normality is a lot better after we delete the data from 2020-02 to 2020-04. Using this data we use two-way ANOVA model and TukeyHSD test again.
+```{r, echo=F,include=F}
+library(car)
+#Type I model
+anova.fit2=aov(month_cases_perm~NUMBER_VACCINES_TYPES_USED+handwash+NUMBER_VACCINES_TYPES_USED*handwash,data=datas)
+summary(anova.fit2)
+TukeyHSD(anova.fit2, which = "NUMBER_VACCINES_TYPES_USED")
+```
+
+After conducting TukeyLSD test, we can make more conclusions this time: Type 11 is worse than type 2, type 11 is also worse than type 3. Compared to previous conclusion, we can make the same conclusion under a smaller significance level.
+
+## 7. Conclusion and further study
+  
+  On exploratory data analysis and modeling analysis on the data set of monthly new cases, hand wash facilities and vaccine type from Our World in Data, it can be concluded that different vaccine type and hand wash facilities levels are significant in the difference of monthly new cases of COVID-19. In general, with more hand wash facilities, monthly new cases will be less but in our explanatory analysis the conclusion is inverse. In our model, all the explanatory variables are significant at 0.001 level, which means hand wash facilities and vaccine type is of vital importance in deciding the difference of monthly new cases. In our multiple comparison process, we divide the vaccine into four groups: a. type1. b. type2, type3, type11. c. type4, type6, type7. d. type5, type8. Group a has the best effect on COVID-19 vaccine and group d has the worst. Type 1 vaccine contains Beijing CNBG - BBIBP-CorV, Pfizer BioNTech(Comirnaty), Moderna - Spikevax, Moderna - mRNA-1273, AstraZeneca - Vaxzevria, AstraZeneca - AZD1222, SII - Covishield.
+
+However, the time series data always has hysteresis property, so the response variable is not strictly normal distributed. Also, many other infactors are not included here, such as development level of each country, hospital facilities, people's thought of COVID-19, etc. With these included, the model will be better. 
+
+## Reference
+
+[1] Chen, S. (n.d.). Notebook Retrieved February 17, 2022, from https://nbviewer.org/github/ChenShizhe/StatDataScience/blob/master/Notes/Chapter4ANOVAII.ipynb
+
+[2] WHO COVID-19 dashboard. https://covid19.who.int/info?openIndex=2
+
+## 8. Codes{-}
+https://github.com/YikunShi/207-final-project/tree/main
